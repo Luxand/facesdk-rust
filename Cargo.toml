@@ -1,0 +1,35 @@
+[package]
+name = "fsdk"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+
+[lib]
+name = "fsdk"
+path = "src/fsdk.rs"
+
+[[bin]]
+name = "portrait"
+path = "src/portrait.rs"
+
+[[bin]]
+name = "liverecognition"
+path = "src/liverecognition.rs"
+
+[dependencies]
+libloading = "0.8"
+thiserror = "1.0"
+fontdue = "0.9"
+
+# Camera and display for liverecognition
+minifb = "0.25"
+tinyfiledialogs = "3.9"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }
