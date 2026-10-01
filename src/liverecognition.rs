@@ -2,7 +2,7 @@
 //!
 //! Uses the native camera via nokhwa crate
 //! and displays the video with face detection overlay using minifb.
-//! Demonstrates v2 face detection model with liveness detection.
+//! Demonstrates face detection, recognition and liveness detection with the FaceSDK Tracker API.
 //!
 //! Platform-specific liveness:
 //! - Windows/Linux: iBeta certified liveness addon
@@ -21,9 +21,11 @@ use nokhwa::Camera;
 use fsdk::{
     Face, Image, Tracker, FSDK, FSDK_IMAGE_COLOR_24BIT,
 };
+#[cfg(not(target_os = "macos"))]
+use fsdk::{FsdkError, FSDKE_PLUGIN_NO_PERMISSION};
 
-const LICENSE_KEY: &str = "<INSERT YOUR LICENSE KEY HERE>";
-const TRACKER_MEMORY_FILE: &str = "tracker.dat";
+const LICENSE_KEY: &str = "INSERT THE LICENSE KEY HERE";
+const TRACKER_MEMORY_FILE: &str = "tracker90.dat";
 
 #[cfg(not(target_os = "macos"))]
 const IBETA_DIR: &str = "./fsdk"; // Directory where iBeta data files are located (Windows/Linux)
@@ -59,13 +61,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let liveness_model = format!("external:dataDir={}", IBETA_DIR);
         match FSDK::set_parameter("LivenessModel", &liveness_model) {
             Ok(()) => println!("iBeta liveness model loaded from: {}", IBETA_DIR),
-            Err(e) => println!("Warning: Could not load iBeta liveness model: {}. Liveness detection may not work.", e),
+            Err(FsdkError::FsdkError { code: FSDKE_PLUGIN_NO_PERMISSION, .. }) => {
+                println!("Warning: the license key does not permit the iBeta liveness plugin. Liveness detection may not work.")
+            }
+            Err(e) => println!(
+                "Warning: Could not load iBeta liveness model: {}. \
+                 Check that the iBeta license is installed and the plugin files are in {}. Liveness detection may not work.",
+                e, IBETA_DIR
+            ),
         }
     }
 
-    // Load or create tracker.
-    // Important: DetectionVersion cannot be changed on a non-empty tracker,
-    // so do not use set_parameter as a compatibility check for loaded data.
+    // Load or create tracker
     let tracker = match Tracker::from_file(TRACKER_MEMORY_FILE) {
         Ok(t) => {
             let known_ids = t.get_ids_count().unwrap_or(-1);
@@ -74,18 +81,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(e) => {
             println!("Creating new tracker (load failed: {})", e);
-            let t = Tracker::new()?;
-            t.set_parameter("DetectionVersion", "2")?;
-            t
+            Tracker::new()?
         }
     };
 
-    // Platform-specific liveness configuration
+    // Realtime face detection parameters and platform-specific liveness configuration
     #[cfg(not(target_os = "macos"))]
     {
         // Windows/Linux: iBeta certified liveness (single-frame)
         tracker.set_parameters(
-            "FaceDetection2PatchSize=256;\
+            "FaceDetectionPatchSize=128;\
+             FaceDetectionThreshold=0.4;\
              Threshold=0.8;\
              Threshold2=0.9;\
              DetectLiveness=true;\
@@ -99,7 +105,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         // macOS: Built-in liveness detection (multi-frame)
         tracker.set_parameters(
-            "FaceDetection2PatchSize=256;\
+            "FaceDetectionPatchSize=128;\
+             FaceDetectionThreshold=0.4;\
              Threshold=0.8;\
              Threshold2=0.9;\
              DetectLiveness=true;\

@@ -12,9 +12,9 @@ The iBeta certified Liveness add-on for FaceSDK aced Level 1 Presentation Attack
 
 # FaceSDK - Rust, Cross-Platform (macOS, Linux, Windows)
 
-Cross-platform Rust examples demonstrating face detection, recognition, and liveness verification using Luxand FaceSDK. Includes a Rust wrapper with dynamic library loading — no build-time linking required.
+Cross-platform Rust examples demonstrating face detection, recognition, and liveness verification using Luxand FaceSDK 9.0. Includes a Rust wrapper with dynamic library loading — no build-time linking required.
 
-> Before running examples, set `LICENSE_KEY` in `src/liverecognition.rs` and `src/portrait.rs`.
+> Before running examples, replace `INSERT THE LICENSE KEY HERE` with your license key in `src/liverecognition.rs` and `src/portrait.rs`.
 
 ## Examples
 
@@ -22,8 +22,8 @@ Cross-platform Rust examples demonstrating face detection, recognition, and live
 
 Real-time face detection, recognition, and liveness verification from a webcam feed.
 
-- Real-time face detection and tracking with the improved v2 model
-- Face recognition with persistent identity across sessions (saved to `tracker.dat`)
+- Real-time face detection and tracking
+- Face recognition with persistent identity across sessions (saved to `tracker90.dat`)
 - Liveness detection to prevent spoofing attacks
 - Click-to-name face identification via native dialog
 - FPS overlay in the live window
@@ -38,7 +38,7 @@ Face detection and cropping from a static image.
 ## Prerequisites
 
 - **Rust** toolchain (1.70+) installed via `rustup`: https://rustup.rs/
-- **Luxand FaceSDK** native library placed in the `fsdk/` directory:
+- **Luxand FaceSDK 9.0** native library placed in the `fsdk/` directory (already included in this repository):
   - macOS ARM64: `fsdk/osx_arm64/libfsdk.dylib`
   - Linux 64-bit: `fsdk/linux64/libfsdk.so`
   - Windows 64-bit: `fsdk/win64/facesdk.dll`
@@ -48,7 +48,7 @@ Face detection and cropping from a static image.
     - Common package names include `libv4l-dev` (Ubuntu/Debian), `libv4l-devel` (Fedora/RHEL), and `v4l-utils` (Arch)
 - **Clang / libclang** development libraries on Linux — required by `bindgen` through the `nokhwa -> v4l2-sys-mit` dependency chain when generating V4L2 FFI bindings
     - Common package names include `clang` and `libclang-dev` (Ubuntu/Debian), `clang` and `clang-devel` (Fedora/RHEL), and `clang` (Arch)
-- **iBeta liveness model files** (Windows/Linux only) — By default, `liverecognition` uses `IBETA_DIR = "./fsdk"` as `LivenessModel` data directory
+- **iBeta liveness add-on** (Windows/Linux only) — the plugin libraries and the `data/` model directory are included in `fsdk/win64`, `fsdk/linux64` and `fsdk/data`. By default, `liverecognition` uses `IBETA_DIR = "./fsdk"` as `LivenessModel` data directory. The add-on also requires a FaceSDK license key that permits it and the iBeta license installed on the system (see [iBeta License](#ibeta-license)).
 
 ### Install Rust
 
@@ -96,66 +96,83 @@ cargo run --release --bin portrait -- photo.jpg
 # Creates "face.photo.jpg" with the detected face cropped and resized
 ```
 
-On Windows (via Git Bash or MSYS2), if your user profile path contains non-ASCII characters, use `./build.sh` instead of `cargo build` directly. It relocates `CARGO_HOME` to `C:/cargo-home` so that NASM can handle the mozjpeg SIMD build without Unicode path errors.
+Run the examples from the repository root: the FaceSDK library is loaded from `fsdk/<platform>/` relative to the current directory (or its parent), and the tracker memory is saved to `tracker90.dat` in the current directory.
 
-## Improved v2 Face Detection
+## FaceSDK 9.0 API
 
-The v2 model significantly improves face detection and recognition accuracy. The face template size is 2068 bytes and the recognition threshold is lower — values as low as 0.8 provide good results.
+FaceSDK 9.0 uses new neural network models for face detection and recognition. The face template size is 1040 bytes.
+Templates and tracker memory files created with FaceSDK 8.x are not compatible with 9.0.
 
 ### Face Structure
 
 ```rust
 pub struct Face {
+    pub score: f32,           // Detector confidence
+    pub angle: f32,           // In-plane rotation angle in degrees
     pub bbox: BBox,           // Bounding box with top-left (p0) and bottom-right (p1)
     pub features: [Point; 5], // Eye centers, nose tip, mouth corners
 }
 ```
 
-Use `Face` instead of `FacePosition` when working with v2 detection. The `bbox` field provides direct top-left and bottom-right coordinates. The `features` array contains 5 key facial landmarks.
+`Face` replaces `FacePosition` from previous versions. Use `face.rect()`, `face.width()`, `face.height()` and `face.center()` to work with the bounding box.
+Facial features (`Features`) are 70 points with floating-point coordinates (`PointF`).
 
-### v2 Detection Functions
-
-```rust
-let face: Face = image.detect_face2()?;
-let faces: Vec<Face> = image.detect_multiple_faces2(max_count)?;
-let template: FaceTemplate = image.get_face_template2()?;
-let template: FaceTemplate = image.get_face_template_in_region2(&face)?;
-```
-
-`detect_face2` returns the face with the highest confidence. `detect_multiple_faces2` returns faces sorted by confidence in descending order.
-
-### Activating v2 Detection in Tracker
+### Detection and Recognition Functions
 
 ```rust
-tracker.set_parameter("DetectionVersion", "2")?;
+let face: Face = image.detect_face()?;                          // face with the highest confidence
+let faces: Vec<Face> = image.detect_multiple_faces(max_count)?; // sorted by confidence, descending
+let features: Features = image.detect_facial_features_in_region(&face)?;
+let template: FaceTemplate = image.get_face_template_in_region(&face)?;
+let similarity: f32 = FSDK::match_faces(&template1, &template2)?;
 ```
 
-This parameter must be set before the first call to `tracker.feed_frame()`. It cannot be set on a non-empty Tracker (one loaded from a file with existing face data).
+### Face Detection Parameters
 
-### v2 Detection Parameters
+Parameters are set with `FSDK::set_parameter` / `FSDK::set_parameters`, or with `tracker.set_parameter` / `tracker.set_parameters` for the Tracker API.
 
 | Parameter | Description | Default | Accepted Values |
 | :--- | :--- | :---: | :--- |
-| FaceDetection2Model | Path to the face detection model file | default | File path or `"default"` |
-| FaceDetection2Threshold | Face detection threshold | 0.64 | Float in [0, 1] |
-| FaceDetection2BatchSize | Image patches processed simultaneously | 1 | Positive integer |
-| FaceDetection2PatchSize | Size of a single image patch | 640 | Positive integer (higher = slower but detects smaller faces) |
-| FaceDetection2PatchMode | Image patching algorithm | fast | `"fast"`, `"full"`, `"mixed"` |
-| FaceDetection2ComputationDelegate | Computation backend | cpu | `"none"`, `"cpu"`, `"gpu"` |
+| FaceDetectionThreshold | Minimum detection score for a face to be reported | 0.64 (Tracker: 0.4) | Float in [0, 1] |
+| FaceDetectionPatchSize | Size of the square patch the detector works with | 640 (Tracker: 256) | Divisible by 32, minimum 64 (higher = slower but detects smaller faces) |
+| FaceDetectionPatchMode | Image patching algorithm | fast | `"fast"`, `"mixed"`, `"full"` |
+| FaceDetectionBigFaceSize | Size of the whole-image pass used to find faces too large for a single patch | 384 | Positive integer |
+| FaceDetectionBatchSize | Image patches processed simultaneously | 1 | Positive integer |
+| TrimOutOfScreenFaces | Discard faces crossing the edges of the image | true | `"true"`, `"false"` |
+| FaceDetectionModel | Path to the face detection model file | default | File path or `"default"` |
 
-### v2 Recognition Parameters
+The examples use `FaceDetectionPatchSize=128` for live webcam video and `256` for still photos.
+
+### Face Recognition Parameters
 
 | Parameter | Description | Default | Accepted Values |
 | :--- | :--- | :---: | :--- |
-| FaceRecognition2Model | Path to the face recognition model file | default | File path or `"default"` |
-| FaceRecognition2UseFlipTest | Use mirrored image when creating template | false | `"false"` or `"true"` |
-| FaceRecognition2ComputationDelegate | Computation backend | cpu | `"none"`, `"cpu"`, `"gpu"` |
+| FaceRecognitionModel | Path to the face recognition model file | default | File path or `"default"` |
+| FaceRecognitionUseFlipTest | Also use the mirrored face when creating a template | false | `"false"` or `"true"` |
+| FaceRecognitionBatchSize | Faces processed in one inference call | 1 | Positive integer |
+| ComputationDelegate | Computation backend for all models | cpu | `"none"`, `"cpu"`, `"gpu"` |
 
 ## Liveness Detection
 
 ### Windows and Linux: iBeta Certified Liveness
 
 On Windows and Linux, the examples use the [iBeta Certified Liveness Addon](https://www.luxand.com/facesdk/documentation/certifiedliveness.php) for robust single-frame presentation attack detection.
+
+#### iBeta License
+
+The iBeta add-on requires a license file (`.v2c`) installed on the target system before starting the application. The license file and the `install_license` utilities are in the `INSTALL_LICENSE` directory. To install it, run:
+
+```bash
+# Windows
+cd INSTALL_LICENSE
+run_to_install_license.bat
+
+# Linux
+cd INSTALL_LICENSE
+sh INSTALL.sh
+```
+
+If the add-on cannot be loaded, `liverecognition` prints a warning and continues without iBeta liveness. `FSDKE_PLUGIN_NO_PERMISSION` (-31) means that your FaceSDK license key does not permit the iBeta add-on.
 
 ```rust
 // Load iBeta liveness model (before tracker creation)
@@ -164,7 +181,8 @@ FSDK::set_parameter("LivenessModel", &format!("external:dataDir={}", IBETA_DIR))
 
 // Configure tracker
 tracker.set_parameters(
-    "DetectLiveness=true; LivenessFramesCount=1; SmoothAttributeLiveness=false"
+    "FaceDetectionPatchSize=128; FaceDetectionThreshold=0.4; \
+     DetectLiveness=true; LivenessFramesCount=1; SmoothAttributeLiveness=false"
 )?;
 ```
 
@@ -176,7 +194,8 @@ If your iBeta files are stored elsewhere, update `IBETA_DIR` in `src/liverecogni
 
 ```rust
 tracker.set_parameters(
-    "DetectLiveness=true; LivenessFramesCount=6; SmoothAttributeLiveness=true"
+    "FaceDetectionPatchSize=128; FaceDetectionThreshold=0.4; \
+     DetectLiveness=true; LivenessFramesCount=6; SmoothAttributeLiveness=true"
 )?;
 ```
 
@@ -208,15 +227,15 @@ tracker.set_parameters(
 ├── assets/
 │   └── Inter-Regular.ttf   # Embedded TrueType font for overlay text
 ├── fsdk/                   # Native FaceSDK libraries (per-platform)
-│   ├── data/               # iBeta liveness model and configuration files
+│   ├── data/               # iBeta liveness model and configuration files (Windows/Linux)
 │   │   ├── detection/
 │   │   ├── pipelines/
 │   │   ├── preprocessing/
 │   │   └── quality/
-│   ├── linux64/
-│   ├── osx_arm64/
-│   └── win64/
-├── build.sh                # Build wrapper for Windows/Git Bash (NASM Unicode path workaround)
+│   ├── linux64/            # libfsdk.so and iBeta plugin libraries
+│   ├── osx_arm64/          # libfsdk.dylib
+│   └── win64/              # facesdk.dll and iBeta plugin libraries
+├── INSTALL_LICENSE/        # iBeta license file and install utilities (Windows/Linux)
 ├── input.png               # Sample input image for portrait example
 ├── Cargo.toml
 └── README.md

@@ -43,7 +43,6 @@ pub const FSDKE_PLUGIN_NOT_LOADED: i32 = -30;
 pub const FSDKE_PLUGIN_NO_PERMISSION: i32 = -31;
 pub const FSDKE_FACEID_NOT_FOUND: i32 = -32;
 pub const FSDKE_FACEIMAGE_NOT_FOUND: i32 = -33;
-pub const FSDKE_IBETA_INITIALIZATION_ERROR: i32 = -200;
 
 // Facial feature count
 pub const FSDK_FACIAL_FEATURE_COUNT: usize = 70;
@@ -121,7 +120,7 @@ pub const FSDKP_FACE_CONTOUR16: usize = 68;
 pub const FSDKP_FACE_CONTOUR17: usize = 69;
 
 // FSDK_FaceTemplate size
-pub const FSDK_FACE_TEMPLATE_SIZE: usize = 2068;
+pub const FSDK_FACE_TEMPLATE_SIZE: usize = 1040;
 
 pub fn error_name(code: i32) -> &'static str {
     match code {
@@ -159,7 +158,6 @@ pub fn error_name(code: i32) -> &'static str {
         FSDKE_PLUGIN_NO_PERMISSION => "FSDKE_PLUGIN_NO_PERMISSION",
         FSDKE_FACEID_NOT_FOUND => "FSDKE_FACEID_NOT_FOUND",
         FSDKE_FACEIMAGE_NOT_FOUND => "FSDKE_FACEIMAGE_NOT_FOUND",
-        FSDKE_IBETA_INITIALIZATION_ERROR => "FSDKE_IBETA_INITIALIZATION_ERROR",
         _ => "UNKNOWN_ERROR",
     }
 }
