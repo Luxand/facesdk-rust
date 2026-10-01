@@ -1,0 +1,7 @@
+/target/
+
+# tracker memory created by liverecognition
+tracker*.dat
+
+# portrait output
+face.*

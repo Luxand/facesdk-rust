@@ -34,11 +34,12 @@ pub struct Point {
     pub y: c_int,
 }
 
+/// A point with floating-point coordinates (used in facial features)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Eyes {
-    pub left: Point,
-    pub right: Point,
+pub struct PointF {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[repr(C)]
@@ -48,10 +49,17 @@ pub struct BBox {
     pub p1: Point,
 }
 
+/// Detected face (TFace)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Face {
+    /// Detector confidence
+    pub score: f32,
+    /// In-plane rotation angle in degrees
+    pub angle: f32,
+    /// Bounding box with top-left (p0) and bottom-right (p1) corners
     pub bbox: BBox,
+    /// 5 key points: eye centers, nose tip, mouth corners
     pub features: [Point; 5],
 }
 
@@ -77,31 +85,16 @@ impl Face {
     }
 }
 
+/// Array of 70 facial feature points
+pub type Features = [PointF; FSDK_FACIAL_FEATURE_COUNT];
+
+/// Result of matching a face template against the tracker memory
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct FacePosition {
-    pub xc: c_int,
-    pub yc: c_int,
-    pub w: c_int,
-    _padding: c_int,
-    pub angle: f64,
+pub struct IDSimilarity {
+    pub id: i64,
+    pub similarity: f32,
 }
-
-impl FacePosition {
-    /// Returns the bounding rectangle (x1, y1, x2, y2) for the face
-    pub fn rect(&self) -> (i32, i32, i32, i32) {
-        let half_w = self.w / 2;
-        (
-            self.xc - half_w,
-            self.yc - half_w,
-            self.xc + half_w,
-            self.yc + half_w,
-        )
-    }
-}
-
-/// Array of 70 facial feature points
-pub type Features = [Point; FSDK_FACIAL_FEATURE_COUNT];
 
 /// Face template for matching
 #[repr(C)]
@@ -192,6 +185,11 @@ impl FSDK {
         ffi::get_license_info()
     }
 
+    /// Returns library version information
+    pub fn get_version_info() -> Result<String> {
+        ffi::get_version_info()
+    }
+
     /// Gets the number of threads used by FaceSDK
     pub fn get_num_threads() -> Result<i32> {
         ffi::get_num_threads()
@@ -212,42 +210,9 @@ impl FSDK {
         ffi::set_parameter(name, value)
     }
 
-    /// Sets face detection parameters
-    pub fn set_face_detection_parameters(
-        handle_arbitrary_rotations: bool,
-        determine_face_rotation_angle: bool,
-        internal_resize_width: i32,
-    ) -> Result<()> {
-        ffi::set_face_detection_parameters(
-            handle_arbitrary_rotations,
-            determine_face_rotation_angle,
-            internal_resize_width,
-        )
-    }
-
-    /// Sets face detection threshold (default 5, lower = more faces detected)
-    pub fn set_face_detection_threshold(threshold: i32) -> Result<()> {
-        ffi::set_face_detection_threshold(threshold)
-    }
-
-    /// Gets confidence of the last detected face
-    pub fn get_detected_face_confidence() -> Result<i32> {
-        ffi::get_detected_face_confidence()
-    }
-
     /// Sets JPEG compression quality (0-100)
     pub fn set_jpeg_compression_quality(quality: i32) -> Result<()> {
         ffi::set_jpeg_compression_quality(quality)
-    }
-
-    /// Gets matching threshold at given FAR (False Acceptance Rate)
-    pub fn get_matching_threshold_at_far(far_value: f32) -> Result<f32> {
-        ffi::get_matching_threshold_at_far(far_value)
-    }
-
-    /// Gets matching threshold at given FRR (False Rejection Rate)
-    pub fn get_matching_threshold_at_frr(frr_value: f32) -> Result<f32> {
-        ffi::get_matching_threshold_at_frr(frr_value)
     }
 
     /// Matches two face templates and returns similarity (0.0-1.0)
@@ -438,104 +403,52 @@ impl Image {
         ffi::mirror_image(self.handle, use_vertical)
     }
 
-    /// Detects a face in the image and returns its position
-    pub fn detect_face(&self) -> Result<FacePosition> {
+    /// Detects the face with the highest confidence in the image
+    pub fn detect_face(&self) -> Result<Face> {
         ffi::detect_face(self.handle)
     }
 
-    /// Detects multiple faces in the image
-    pub fn detect_multiple_faces(&self, max_faces: usize) -> Result<Vec<FacePosition>> {
+    /// Detects all faces in the image, sorted by confidence in descending order
+    pub fn detect_multiple_faces(&self, max_faces: usize) -> Result<Vec<Face>> {
         ffi::detect_multiple_faces(self.handle, max_faces)
     }
 
-    /// Detects eye positions in the image
-    pub fn detect_eyes(&self) -> Result<Eyes> {
-        ffi::detect_eyes(self.handle)
-    }
-
-    /// Detects eye positions in a specific face region
-    pub fn detect_eyes_in_region(&self, face_position: &FacePosition) -> Result<Eyes> {
-        ffi::detect_eyes_in_region(self.handle, face_position)
-    }
-
-    /// Detects facial features (70 points) in the image
+    /// Detects a face and its 70 facial features
     pub fn detect_facial_features(&self) -> Result<Features> {
         ffi::detect_facial_features(self.handle)
     }
 
-    /// Detects facial features in a specific face region
-    pub fn detect_facial_features_in_region(&self, face_position: &FacePosition) -> Result<Features> {
-        ffi::detect_facial_features_in_region(self.handle, face_position)
+    /// Detects 70 facial features of a face found by `detect_face` / `detect_multiple_faces`
+    pub fn detect_facial_features_in_region(&self, face: &Face) -> Result<Features> {
+        ffi::detect_facial_features_in_region(self.handle, face)
     }
 
-    /// Detects facial features with confidence levels
-    pub fn detect_facial_features_ex(&self) -> Result<(Features, [f32; FSDK_FACIAL_FEATURE_COUNT])> {
-        ffi::detect_facial_features_ex(self.handle)
+    /// Extracts a normalized face image of the given size.
+    /// Returns the face image and the facial features in its coordinates.
+    pub fn extract_face_image(&self, features: &Features, width: i32, height: i32) -> Result<(Image, Features)> {
+        let (handle, resized) = ffi::extract_face_image(self.handle, features, width, height)?;
+        Ok((Image::from_handle(handle), resized))
     }
 
-    /// Detects facial features in region with confidence levels
-    pub fn detect_facial_features_in_region_ex(&self, face_position: &FacePosition) -> Result<(Features, [f32; FSDK_FACIAL_FEATURE_COUNT])> {
-        ffi::detect_facial_features_in_region_ex(self.handle, face_position)
-    }
-
-    // --- v2 Detection (improved model) ---
-
-    /// Detects a face using the improved v2 model, returns Face with bounding box and 5 features
-    pub fn detect_face2(&self) -> Result<Face> {
-        ffi::detect_face2(self.handle)
-    }
-
-    /// Detects multiple faces using the improved v2 model
-    pub fn detect_multiple_faces2(&self, max_faces: usize) -> Result<Vec<Face>> {
-        ffi::detect_multiple_faces2(self.handle, max_faces)
-    }
-
-    /// Detects a face and 70-point facial features using the improved v2 model
-    pub fn detect_face_and_features2(&self) -> Result<(Face, Features)> {
-        ffi::detect_face_and_features2(self.handle)
-    }
-
-    /// Detects multiple faces and their 70-point facial features using the improved v2 model
-    pub fn detect_multiple_faces_and_features2(&self, max_faces: usize) -> Result<(Vec<Face>, Vec<Features>)> {
-        ffi::detect_multiple_faces_and_features2(self.handle, max_faces)
-    }
-
-    /// Extracts face template from the image (auto-detects face)
+    /// Extracts face template from the image (detects the face automatically)
     pub fn get_face_template(&self) -> Result<FaceTemplate> {
         ffi::get_face_template(self.handle)
     }
 
-    /// Extracts face template from a specific face region
-    pub fn get_face_template_in_region(&self, face_position: &FacePosition) -> Result<FaceTemplate> {
-        ffi::get_face_template_in_region(self.handle, face_position)
+    /// Extracts face template for a face found by `detect_face` / `detect_multiple_faces`
+    pub fn get_face_template_in_region(&self, face: &Face) -> Result<FaceTemplate> {
+        ffi::get_face_template_in_region(self.handle, face)
     }
 
-    /// Extracts face template using facial features
-    pub fn get_face_template_using_features(&self, features: &Features) -> Result<FaceTemplate> {
-        ffi::get_face_template_using_features(self.handle, features)
-    }
-
-    /// Extracts face template using eye positions
-    pub fn get_face_template_using_eyes(&self, eyes: &Eyes) -> Result<FaceTemplate> {
-        ffi::get_face_template_using_eyes(self.handle, eyes)
-    }
-
-    // --- v2 Templates (improved model) ---
-
-    /// Extracts face template using the improved v2 model (auto-detects face)
-    pub fn get_face_template2(&self) -> Result<FaceTemplate> {
-        ffi::get_face_template2(self.handle)
-    }
-
-    /// Extracts face template for a specific Face region using the improved v2 model
-    pub fn get_face_template_in_region2(&self, face: &Face) -> Result<FaceTemplate> {
-        ffi::get_face_template_in_region2(self.handle, face)
-    }
-
-    /// Detects facial attributes using features
+    /// Detects facial attributes using 70 facial features
     /// Returns string like "Male=0.95;Female=0.05" for Gender attribute
     pub fn detect_facial_attribute(&self, features: &Features, attribute_name: &str) -> Result<String> {
         ffi::detect_facial_attribute_using_features(self.handle, features, attribute_name)
+    }
+
+    /// Detects facial attributes using a face found by `detect_face` / `detect_multiple_faces`
+    pub fn detect_facial_attribute_using_face(&self, face: &Face, attribute_name: &str) -> Result<String> {
+        ffi::detect_facial_attribute_using_face(self.handle, face, attribute_name)
     }
 }
 
@@ -652,8 +565,8 @@ impl Tracker {
         ffi::feed_frame(self.handle, camera_idx, image.handle, max_ids)
     }
 
-    /// Gets eye positions for a tracked face
-    pub fn get_eyes(&self, camera_idx: i64, id: i64) -> Result<Eyes> {
+    /// Gets eye positions for a tracked face (the first two points of Features)
+    pub fn get_eyes(&self, camera_idx: i64, id: i64) -> Result<Features> {
         ffi::get_tracker_eyes(self.handle, camera_idx, id)
     }
 
@@ -662,12 +575,7 @@ impl Tracker {
         ffi::get_tracker_facial_features(self.handle, camera_idx, id)
     }
 
-    /// Gets face position for a tracked face
-    pub fn get_face_position(&self, camera_idx: i64, id: i64) -> Result<FacePosition> {
-        ffi::get_tracker_face_position(self.handle, camera_idx, id)
-    }
-
-    /// Gets face (Face with bounding box and 5 features) for a tracked face using v2 model
+    /// Gets face (bounding box, score, angle and 5 key points) for a tracked face
     pub fn get_face(&self, camera_idx: i64, id: i64) -> Result<Face> {
         ffi::get_tracker_face(self.handle, camera_idx, id)
     }
@@ -752,6 +660,57 @@ impl Tracker {
     /// Gets all known IDs
     pub fn get_all_ids(&self) -> Result<Vec<i64>> {
         ffi::get_tracker_all_ids(self.handle)
+    }
+
+    /// Gets face IDs (stored face templates) of an ID
+    pub fn get_face_ids_for_id(&self, id: i64) -> Result<Vec<i64>> {
+        ffi::get_tracker_face_ids_for_id(self.handle, id)
+    }
+
+    /// Gets the ID a face ID belongs to
+    pub fn get_id_by_face_id(&self, face_id: i64) -> Result<i64> {
+        ffi::get_tracker_id_by_face_id(self.handle, face_id)
+    }
+
+    /// Gets the face template stored under a face ID
+    pub fn get_face_template(&self, face_id: i64) -> Result<FaceTemplate> {
+        ffi::get_tracker_face_template(self.handle, face_id)
+    }
+
+    /// Gets the face image stored under a face ID
+    pub fn get_face_image(&self, face_id: i64) -> Result<Image> {
+        Ok(Image::from_handle(ffi::get_tracker_face_image(self.handle, face_id)?))
+    }
+
+    /// Stores a face image under a face ID (the image must be 112x112 pixels)
+    pub fn set_face_image(&self, face_id: i64, image: &Image) -> Result<()> {
+        ffi::set_tracker_face_image(self.handle, face_id, image.handle)
+    }
+
+    /// Deletes the face image stored under a face ID
+    pub fn delete_face_image(&self, face_id: i64) -> Result<()> {
+        ffi::delete_tracker_face_image(self.handle, face_id)
+    }
+
+    /// Deletes a face (template and image) from the tracker memory
+    pub fn delete_face(&self, face_id: i64) -> Result<()> {
+        ffi::delete_tracker_face(self.handle, face_id)
+    }
+
+    /// Creates a new ID from a face template. Returns (ID, face ID)
+    pub fn create_id(&self, template: &FaceTemplate) -> Result<(i64, i64)> {
+        ffi::tracker_create_id(self.handle, template)
+    }
+
+    /// Adds a face template to an existing ID. Returns the new face ID
+    pub fn add_face_template(&self, id: i64, template: &FaceTemplate) -> Result<i64> {
+        ffi::add_tracker_face_template(self.handle, id, template)
+    }
+
+    /// Matches a face template against the tracker memory.
+    /// Returns up to `max_count` IDs with similarity above `threshold`, best match first
+    pub fn match_faces(&self, template: &FaceTemplate, threshold: f32, max_count: usize) -> Result<Vec<IDSimilarity>> {
+        ffi::tracker_match_faces(self.handle, template, threshold, max_count)
     }
 }
 

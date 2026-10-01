@@ -11,7 +11,7 @@ use std::process;
 
 use fsdk::{FsdkError, Image, FSDK};
 
-const LICENSE_KEY: &str = "<INSERT YOUR LICENSE KEY HERE>";
+const LICENSE_KEY: &str = "INSERT THE LICENSE KEY HERE";
 
 fn run() -> Result<(), FsdkError> {
     let args: Vec<String> = env::args().collect();
@@ -36,25 +36,26 @@ fn run() -> Result<(), FsdkError> {
     println!("\nLoading file {} ...", input_filename);
     let img = Image::from_file(input_filename)?;
 
-    // HandleArbitraryRotations=false, DetermineFaceRotationAngle=false, InternalResizeWidth=256
-    FSDK::set_face_detection_parameters(false, false, 256)?;
-    FSDK::set_face_detection_threshold(5)?;
+    FSDK::set_parameter("FaceDetectionPatchSize", "256")?; // set a lower value to speed up face detection
+    FSDK::set_parameter("FaceDetectionThreshold", "0.4")?; // set a lower value to increase detection rate
 
     println!("Detecting face...");
     let face = img.detect_face()?;
 
-    let (x1, y1, x2, y2) = face.rect();
+    // Expand the face bounding box to get a portrait with some margin
+    let center = face.center();
+    let half_w = (1.2 * face.width() as f64 / 2.0) as i32;
+    let half_h = (1.4 * face.height() as f64 / 2.0) as i32;
+    let (x1, y1, x2, y2) = (center.x - half_w, center.y - half_h, center.x + half_w, center.y + half_h);
 
     // Crop and resize face image
     let max_width: f64 = 337.0;
     let max_height: f64 = 450.0;
-    let face_w = (x2 - x1) as f64;
-    let face_h = (y2 - y1) as f64;
 
     let cropped = img.crop(x1, y1, x2, y2)?;
     let ratio = f64::min(
-        (max_width + 0.4) / (face_w + 1.0),
-        (max_height + 0.4) / (face_h + 1.0),
+        (max_width + 0.4) / ((x2 - x1) as f64 + 1.0),
+        (max_height + 0.4) / ((y2 - y1) as f64 + 1.0),
     );
     let resized = cropped.resize(ratio)?;
 

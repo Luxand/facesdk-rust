@@ -12,12 +12,13 @@ use libloading::{Library, Symbol};
 use libloading::os::windows::Library as WinLibrary;
 
 use crate::consts::*;
-use crate::{Eyes, Face, FacePosition, FaceTemplate, Features, FsdkError, HCamera, HImage, HTracker, Point, Result};
+use crate::{Face, FaceTemplate, Features, FsdkError, HCamera, HImage, HTracker, IDSimilarity, PointF, Result};
 
 // Function pointer types - Initialization
 type FnActivateLibrary = unsafe extern "C" fn(*const c_char) -> c_int;
 type FnGetHardwareID = unsafe extern "C" fn(*mut c_char) -> c_int;
 type FnGetLicenseInfo = unsafe extern "C" fn(*mut c_char) -> c_int;
+type FnGetVersionInfo = unsafe extern "C" fn(*mut *const c_char) -> c_int;
 type FnInitialize = unsafe extern "C" fn(*const c_char) -> c_int;
 type FnFinalize = unsafe extern "C" fn() -> c_int;
 type FnGetNumThreads = unsafe extern "C" fn(*mut c_int) -> c_int;
@@ -45,45 +46,24 @@ type FnRotateImage90 = unsafe extern "C" fn(HImage, c_int, HImage) -> c_int;
 type FnRotateImageCenter = unsafe extern "C" fn(HImage, c_double, c_double, c_double, HImage) -> c_int;
 type FnCopyRect = unsafe extern "C" fn(HImage, c_int, c_int, c_int, c_int, HImage) -> c_int;
 type FnCopyRectReplicateBorder = unsafe extern "C" fn(HImage, c_int, c_int, c_int, c_int, HImage) -> c_int;
-type FnMirrorImage = unsafe extern "C" fn(HImage, c_int) -> c_int;
+type FnMirrorImage = unsafe extern "C" fn(HImage, c_uchar) -> c_int;
 type FnSetJpegCompressionQuality = unsafe extern "C" fn(c_int) -> c_int;
 
 // Function pointer types - Face Detection
-type FnSetFaceDetectionParameters = unsafe extern "C" fn(c_int, c_int, c_int) -> c_int;
-type FnSetFaceDetectionThreshold = unsafe extern "C" fn(c_int) -> c_int;
-type FnGetDetectedFaceConfidence = unsafe extern "C" fn(*mut c_int) -> c_int;
-type FnDetectFace = unsafe extern "C" fn(HImage, *mut FacePosition) -> c_int;
-type FnDetectMultipleFaces = unsafe extern "C" fn(HImage, *mut c_int, *mut FacePosition, c_int) -> c_int;
-type FnDetectEyes = unsafe extern "C" fn(HImage, *mut Eyes) -> c_int;
-type FnDetectEyesInRegion = unsafe extern "C" fn(HImage, *const FacePosition, *mut Eyes) -> c_int;
-
-// Function pointer types - Face Detection v2
-type FnDetectFace2 = unsafe extern "C" fn(HImage, *mut Face) -> c_int;
-type FnDetectMultipleFaces2 = unsafe extern "C" fn(HImage, *mut c_int, *mut Face, c_int) -> c_int;
-type FnDetectFaceAndFeatures2 = unsafe extern "C" fn(HImage, *mut Face, *mut Features) -> c_int;
-type FnDetectMultipleFacesAndFeatures2 = unsafe extern "C" fn(HImage, *mut c_int, *mut Face, *mut Features, c_int) -> c_int;
-
-// Function pointer types - Facial Features
+type FnDetectFace = unsafe extern "C" fn(HImage, *mut Face) -> c_int;
+type FnDetectMultipleFaces = unsafe extern "C" fn(HImage, *mut c_int, *mut Face, c_int) -> c_int;
 type FnDetectFacialFeatures = unsafe extern "C" fn(HImage, *mut Features) -> c_int;
-type FnDetectFacialFeaturesInRegion = unsafe extern "C" fn(HImage, *const FacePosition, *mut Features) -> c_int;
-type FnDetectFacialFeaturesEx = unsafe extern "C" fn(HImage, *mut Features, *mut c_float) -> c_int;
-type FnDetectFacialFeaturesInRegionEx = unsafe extern "C" fn(HImage, *const FacePosition, *mut Features, *mut c_float) -> c_int;
+type FnDetectFacialFeaturesInRegion = unsafe extern "C" fn(HImage, *const Face, *mut Features) -> c_int;
+type FnExtractFaceImage = unsafe extern "C" fn(HImage, *const Features, c_int, c_int, *mut HImage, *mut Features) -> c_int;
 
 // Function pointer types - Templates and Matching
 type FnGetFaceTemplate = unsafe extern "C" fn(HImage, *mut FaceTemplate) -> c_int;
-type FnGetFaceTemplateInRegion = unsafe extern "C" fn(HImage, *const FacePosition, *mut FaceTemplate) -> c_int;
-type FnGetFaceTemplateUsingFeatures = unsafe extern "C" fn(HImage, *const Features, *mut FaceTemplate) -> c_int;
-type FnGetFaceTemplateUsingEyes = unsafe extern "C" fn(HImage, *const Eyes, *mut FaceTemplate) -> c_int;
+type FnGetFaceTemplateInRegion = unsafe extern "C" fn(HImage, *const Face, *mut FaceTemplate) -> c_int;
 type FnMatchFaces = unsafe extern "C" fn(*const FaceTemplate, *const FaceTemplate, *mut c_float) -> c_int;
-type FnGetMatchingThresholdAtFAR = unsafe extern "C" fn(c_float, *mut c_float) -> c_int;
-type FnGetMatchingThresholdAtFRR = unsafe extern "C" fn(c_float, *mut c_float) -> c_int;
-
-// Function pointer types - Templates v2
-type FnGetFaceTemplate2 = unsafe extern "C" fn(HImage, *mut FaceTemplate) -> c_int;
-type FnGetFaceTemplateInRegion2 = unsafe extern "C" fn(HImage, *const Face, *mut FaceTemplate) -> c_int;
 
 // Function pointer types - Facial Attributes
 type FnDetectFacialAttributeUsingFeatures = unsafe extern "C" fn(HImage, *const Features, *const c_char, *mut c_char, c_longlong) -> c_int;
+type FnDetectFacialAttributeUsingFace = unsafe extern "C" fn(HImage, *const Face, *const c_char, *mut c_char, c_longlong) -> c_int;
 type FnGetValueConfidence = unsafe extern "C" fn(*const c_char, *const c_char, *mut c_float) -> c_int;
 
 // Function pointer types - Camera
@@ -102,9 +82,8 @@ type FnSetTrackerParameter = unsafe extern "C" fn(HTracker, *const c_char, *cons
 type FnSetTrackerMultipleParameters = unsafe extern "C" fn(HTracker, *const c_char, *mut c_int) -> c_int;
 type FnGetTrackerParameter = unsafe extern "C" fn(HTracker, *const c_char, *mut c_char, c_longlong) -> c_int;
 type FnFeedFrame = unsafe extern "C" fn(HTracker, c_longlong, HImage, *mut c_longlong, *mut c_longlong, c_longlong) -> c_int;
-type FnGetTrackerEyes = unsafe extern "C" fn(HTracker, c_longlong, c_longlong, *mut Eyes) -> c_int;
+type FnGetTrackerEyes = unsafe extern "C" fn(HTracker, c_longlong, c_longlong, *mut Features) -> c_int;
 type FnGetTrackerFacialFeatures = unsafe extern "C" fn(HTracker, c_longlong, c_longlong, *mut Features) -> c_int;
-type FnGetTrackerFacePosition = unsafe extern "C" fn(HTracker, c_longlong, c_longlong, *mut FacePosition) -> c_int;
 type FnGetTrackerFacialAttribute = unsafe extern "C" fn(HTracker, c_longlong, c_longlong, *const c_char, *mut c_char, c_longlong) -> c_int;
 type FnGetTrackerFace = unsafe extern "C" fn(HTracker, c_longlong, c_longlong, *mut Face) -> c_int;
 type FnLockID = unsafe extern "C" fn(HTracker, c_longlong) -> c_int;
@@ -123,6 +102,17 @@ type FnSaveTrackerMemoryToBuffer = unsafe extern "C" fn(HTracker, *mut c_uchar, 
 type FnLoadTrackerMemoryFromBuffer = unsafe extern "C" fn(*mut HTracker, *const c_uchar) -> c_int;
 type FnGetTrackerIDsCount = unsafe extern "C" fn(HTracker, *mut c_longlong) -> c_int;
 type FnGetTrackerAllIDs = unsafe extern "C" fn(HTracker, *mut c_longlong, c_longlong) -> c_int;
+type FnGetTrackerFaceIDsCountForID = unsafe extern "C" fn(HTracker, c_longlong, *mut c_longlong) -> c_int;
+type FnGetTrackerFaceIDsForID = unsafe extern "C" fn(HTracker, c_longlong, *mut c_longlong, c_longlong) -> c_int;
+type FnGetTrackerIDByFaceID = unsafe extern "C" fn(HTracker, c_longlong, *mut c_longlong) -> c_int;
+type FnGetTrackerFaceTemplate = unsafe extern "C" fn(HTracker, c_longlong, *mut FaceTemplate) -> c_int;
+type FnGetTrackerFaceImage = unsafe extern "C" fn(HTracker, c_longlong, *mut HImage) -> c_int;
+type FnSetTrackerFaceImage = unsafe extern "C" fn(HTracker, c_longlong, HImage) -> c_int;
+type FnDeleteTrackerFaceImage = unsafe extern "C" fn(HTracker, c_longlong) -> c_int;
+type FnDeleteTrackerFace = unsafe extern "C" fn(HTracker, c_longlong) -> c_int;
+type FnTrackerCreateID = unsafe extern "C" fn(HTracker, *const FaceTemplate, *mut c_longlong, *mut c_longlong) -> c_int;
+type FnAddTrackerFaceTemplate = unsafe extern "C" fn(HTracker, c_longlong, *const FaceTemplate, *mut c_longlong) -> c_int;
+type FnTrackerMatchFaces = unsafe extern "C" fn(HTracker, *const FaceTemplate, c_float, *mut IDSimilarity, *mut c_longlong, c_longlong) -> c_int;
 
 struct FsdkLibrary {
     // ManuallyDrop prevents FreeLibrary on process exit, avoiding heap corruption
@@ -132,6 +122,7 @@ struct FsdkLibrary {
     activate_library: FnActivateLibrary,
     get_hardware_id: FnGetHardwareID,
     get_license_info: FnGetLicenseInfo,
+    get_version_info: FnGetVersionInfo,
     initialize: FnInitialize,
     finalize: FnFinalize,
     get_num_threads: FnGetNumThreads,
@@ -161,36 +152,18 @@ struct FsdkLibrary {
     mirror_image: FnMirrorImage,
     set_jpeg_compression_quality: FnSetJpegCompressionQuality,
     // Face Detection
-    set_face_detection_parameters: FnSetFaceDetectionParameters,
-    set_face_detection_threshold: FnSetFaceDetectionThreshold,
-    get_detected_face_confidence: FnGetDetectedFaceConfidence,
     detect_face: FnDetectFace,
     detect_multiple_faces: FnDetectMultipleFaces,
-    detect_eyes: FnDetectEyes,
-    detect_eyes_in_region: FnDetectEyesInRegion,
-    // Face Detection v2
-    detect_face2: FnDetectFace2,
-    detect_multiple_faces2: FnDetectMultipleFaces2,
-    detect_face_and_features2: FnDetectFaceAndFeatures2,
-    detect_multiple_faces_and_features2: FnDetectMultipleFacesAndFeatures2,
-    // Facial Features
     detect_facial_features: FnDetectFacialFeatures,
     detect_facial_features_in_region: FnDetectFacialFeaturesInRegion,
-    detect_facial_features_ex: FnDetectFacialFeaturesEx,
-    detect_facial_features_in_region_ex: FnDetectFacialFeaturesInRegionEx,
+    extract_face_image: FnExtractFaceImage,
     // Templates and Matching
     get_face_template: FnGetFaceTemplate,
     get_face_template_in_region: FnGetFaceTemplateInRegion,
-    get_face_template_using_features: FnGetFaceTemplateUsingFeatures,
-    get_face_template_using_eyes: FnGetFaceTemplateUsingEyes,
     match_faces: FnMatchFaces,
-    get_matching_threshold_at_far: FnGetMatchingThresholdAtFAR,
-    get_matching_threshold_at_frr: FnGetMatchingThresholdAtFRR,
-    // Templates v2
-    get_face_template2: FnGetFaceTemplate2,
-    get_face_template_in_region2: FnGetFaceTemplateInRegion2,
     // Facial Attributes
     detect_facial_attribute_using_features: FnDetectFacialAttributeUsingFeatures,
+    detect_facial_attribute_using_face: FnDetectFacialAttributeUsingFace,
     get_value_confidence: FnGetValueConfidence,
     // Camera
     initialize_capturing: FnInitializeCapturing,
@@ -209,7 +182,6 @@ struct FsdkLibrary {
     feed_frame: FnFeedFrame,
     get_tracker_eyes: FnGetTrackerEyes,
     get_tracker_facial_features: FnGetTrackerFacialFeatures,
-    get_tracker_face_position: FnGetTrackerFacePosition,
     get_tracker_face: FnGetTrackerFace,
     get_tracker_facial_attribute: FnGetTrackerFacialAttribute,
     lock_id: FnLockID,
@@ -228,6 +200,17 @@ struct FsdkLibrary {
     load_tracker_memory_from_buffer: FnLoadTrackerMemoryFromBuffer,
     get_tracker_ids_count: FnGetTrackerIDsCount,
     get_tracker_all_ids: FnGetTrackerAllIDs,
+    get_tracker_face_ids_count_for_id: FnGetTrackerFaceIDsCountForID,
+    get_tracker_face_ids_for_id: FnGetTrackerFaceIDsForID,
+    get_tracker_id_by_face_id: FnGetTrackerIDByFaceID,
+    get_tracker_face_template: FnGetTrackerFaceTemplate,
+    get_tracker_face_image: FnGetTrackerFaceImage,
+    set_tracker_face_image: FnSetTrackerFaceImage,
+    delete_tracker_face_image: FnDeleteTrackerFaceImage,
+    delete_tracker_face: FnDeleteTrackerFace,
+    tracker_create_id: FnTrackerCreateID,
+    add_tracker_face_template: FnAddTrackerFaceTemplate,
+    tracker_match_faces: FnTrackerMatchFaces,
 }
 
 // SAFETY: The FSDK library functions are thread-safe according to documentation
@@ -342,6 +325,7 @@ impl FsdkLibrary {
                 activate_library: load_fn!(lib, "FSDK_ActivateLibrary"),
                 get_hardware_id: load_fn!(lib, "FSDK_GetHardware_ID"),
                 get_license_info: load_fn!(lib, "FSDK_GetLicenseInfo"),
+                get_version_info: load_fn!(lib, "FSDK_GetVersionInfo"),
                 initialize: load_fn!(lib, "FSDK_Initialize"),
                 finalize: load_fn!(lib, "FSDK_Finalize"),
                 get_num_threads: load_fn!(lib, "FSDK_GetNumThreads"),
@@ -368,39 +352,21 @@ impl FsdkLibrary {
                 rotate_image_center: load_fn!(lib, "FSDK_RotateImageCenter"),
                 copy_rect: load_fn!(lib, "FSDK_CopyRect"),
                 copy_rect_replicate_border: load_fn!(lib, "FSDK_CopyRectReplicateBorder"),
-                mirror_image: load_fn!(lib, "FSDK_MirrorImage"),
+                mirror_image: load_fn!(lib, "FSDK_MirrorImage_uchar"),
                 set_jpeg_compression_quality: load_fn!(lib, "FSDK_SetJpegCompressionQuality"),
                 // Face Detection
-                set_face_detection_parameters: load_fn!(lib, "FSDK_SetFaceDetectionParameters"),
-                set_face_detection_threshold: load_fn!(lib, "FSDK_SetFaceDetectionThreshold"),
-                get_detected_face_confidence: load_fn!(lib, "FSDK_GetDetectedFaceConfidence"),
                 detect_face: load_fn!(lib, "FSDK_DetectFace"),
                 detect_multiple_faces: load_fn!(lib, "FSDK_DetectMultipleFaces"),
-                detect_eyes: load_fn!(lib, "FSDK_DetectEyes"),
-                detect_eyes_in_region: load_fn!(lib, "FSDK_DetectEyesInRegion"),
-                // Face Detection v2
-                detect_face2: load_fn!(lib, "FSDK_DetectFace2"),
-                detect_multiple_faces2: load_fn!(lib, "FSDK_DetectMultipleFaces2"),
-                detect_face_and_features2: load_fn!(lib, "FSDK_DetectFaceAndFeatures2"),
-                detect_multiple_faces_and_features2: load_fn!(lib, "FSDK_DetectMultipleFacesAndFeatures2"),
-                // Facial Features
                 detect_facial_features: load_fn!(lib, "FSDK_DetectFacialFeatures"),
                 detect_facial_features_in_region: load_fn!(lib, "FSDK_DetectFacialFeaturesInRegion"),
-                detect_facial_features_ex: load_fn!(lib, "FSDK_DetectFacialFeaturesEx"),
-                detect_facial_features_in_region_ex: load_fn!(lib, "FSDK_DetectFacialFeaturesInRegionEx"),
+                extract_face_image: load_fn!(lib, "FSDK_ExtractFaceImage"),
                 // Templates and Matching
                 get_face_template: load_fn!(lib, "FSDK_GetFaceTemplate"),
                 get_face_template_in_region: load_fn!(lib, "FSDK_GetFaceTemplateInRegion"),
-                get_face_template_using_features: load_fn!(lib, "FSDK_GetFaceTemplateUsingFeatures"),
-                get_face_template_using_eyes: load_fn!(lib, "FSDK_GetFaceTemplateUsingEyes"),
                 match_faces: load_fn!(lib, "FSDK_MatchFaces"),
-                get_matching_threshold_at_far: load_fn!(lib, "FSDK_GetMatchingThresholdAtFAR"),
-                get_matching_threshold_at_frr: load_fn!(lib, "FSDK_GetMatchingThresholdAtFRR"),
-                // Templates v2
-                get_face_template2: load_fn!(lib, "FSDK_GetFaceTemplate2"),
-                get_face_template_in_region2: load_fn!(lib, "FSDK_GetFaceTemplateInRegion2"),
                 // Facial Attributes
                 detect_facial_attribute_using_features: load_fn!(lib, "FSDK_DetectFacialAttributeUsingFeatures"),
+                detect_facial_attribute_using_face: load_fn!(lib, "FSDK_DetectFacialAttributeUsingFace"),
                 get_value_confidence: load_fn!(lib, "FSDK_GetValueConfidence"),
                 // Camera
                 initialize_capturing: load_fn!(lib, "FSDK_InitializeCapturing"),
@@ -419,7 +385,6 @@ impl FsdkLibrary {
                 feed_frame: load_fn!(lib, "FSDK_FeedFrame"),
                 get_tracker_eyes: load_fn!(lib, "FSDK_GetTrackerEyes"),
                 get_tracker_facial_features: load_fn!(lib, "FSDK_GetTrackerFacialFeatures"),
-                get_tracker_face_position: load_fn!(lib, "FSDK_GetTrackerFacePosition"),
                 get_tracker_face: load_fn!(lib, "FSDK_GetTrackerFace"),
                 get_tracker_facial_attribute: load_fn!(lib, "FSDK_GetTrackerFacialAttribute"),
                 lock_id: load_fn!(lib, "FSDK_LockID"),
@@ -438,6 +403,17 @@ impl FsdkLibrary {
                 load_tracker_memory_from_buffer: load_fn!(lib, "FSDK_LoadTrackerMemoryFromBuffer"),
                 get_tracker_ids_count: load_fn!(lib, "FSDK_GetTrackerIDsCount"),
                 get_tracker_all_ids: load_fn!(lib, "FSDK_GetTrackerAllIDs"),
+                get_tracker_face_ids_count_for_id: load_fn!(lib, "FSDK_GetTrackerFaceIDsCountForID"),
+                get_tracker_face_ids_for_id: load_fn!(lib, "FSDK_GetTrackerFaceIDsForID"),
+                get_tracker_id_by_face_id: load_fn!(lib, "FSDK_GetTrackerIDByFaceID"),
+                get_tracker_face_template: load_fn!(lib, "FSDK_GetTrackerFaceTemplate"),
+                get_tracker_face_image: load_fn!(lib, "FSDK_GetTrackerFaceImage"),
+                set_tracker_face_image: load_fn!(lib, "FSDK_SetTrackerFaceImage"),
+                delete_tracker_face_image: load_fn!(lib, "FSDK_DeleteTrackerFaceImage"),
+                delete_tracker_face: load_fn!(lib, "FSDK_DeleteTrackerFace"),
+                tracker_create_id: load_fn!(lib, "FSDK_TrackerCreateID"),
+                add_tracker_face_template: load_fn!(lib, "FSDK_AddTrackerFaceTemplate"),
+                tracker_match_faces: load_fn!(lib, "FSDK_TrackerMatchFaces"),
                 _lib: ManuallyDrop::new(lib),
             })
         }
@@ -488,6 +464,18 @@ pub fn get_license_info() -> Result<String> {
     let result = unsafe { (lib.get_license_info)(buffer.as_mut_ptr() as *mut c_char) };
     check_result("GetLicenseInfo", result)?;
     let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+pub fn get_version_info() -> Result<String> {
+    let lib = get_lib()?;
+    let mut info: *const c_char = std::ptr::null();
+    let result = unsafe { (lib.get_version_info)(&mut info) };
+    check_result("GetVersionInfo", result)?;
+    if info.is_null() {
+        return Ok(String::new());
+    }
+    let cstr = unsafe { CStr::from_ptr(info) };
     Ok(cstr.to_string_lossy().into_owned())
 }
 
@@ -674,7 +662,7 @@ pub fn copy_rect_replicate_border(src: HImage, x1: i32, y1: i32, x2: i32, y2: i3
 
 pub fn mirror_image(handle: HImage, use_vertical: bool) -> Result<()> {
     let lib = get_lib()?;
-    let result = unsafe { (lib.mirror_image)(handle, use_vertical as c_int) };
+    let result = unsafe { (lib.mirror_image)(handle, use_vertical as c_uchar) };
     check_result("MirrorImage", result)
 }
 
@@ -686,50 +674,20 @@ pub fn set_jpeg_compression_quality(quality: i32) -> Result<()> {
 
 // --- Face Detection ---
 
-pub fn set_face_detection_parameters(
-    handle_arbitrary_rotations: bool,
-    determine_face_rotation_angle: bool,
-    internal_resize_width: i32,
-) -> Result<()> {
+pub fn detect_face(handle: HImage) -> Result<Face> {
     let lib = get_lib()?;
-    let result = unsafe {
-        (lib.set_face_detection_parameters)(
-            handle_arbitrary_rotations as c_int,
-            determine_face_rotation_angle as c_int,
-            internal_resize_width,
-        )
-    };
-    check_result("SetFaceDetectionParameters", result)
-}
-
-pub fn set_face_detection_threshold(threshold: i32) -> Result<()> {
-    let lib = get_lib()?;
-    let result = unsafe { (lib.set_face_detection_threshold)(threshold) };
-    check_result("SetFaceDetectionThreshold", result)
-}
-
-pub fn get_detected_face_confidence() -> Result<i32> {
-    let lib = get_lib()?;
-    let mut confidence: c_int = 0;
-    let result = unsafe { (lib.get_detected_face_confidence)(&mut confidence) };
-    check_result("GetDetectedFaceConfidence", result)?;
-    Ok(confidence)
-}
-
-pub fn detect_face(handle: HImage) -> Result<FacePosition> {
-    let lib = get_lib()?;
-    let mut face_pos = FacePosition::default();
-    let result = unsafe { (lib.detect_face)(handle, &mut face_pos) };
+    let mut face = Face::default();
+    let result = unsafe { (lib.detect_face)(handle, &mut face) };
     check_result("DetectFace", result)?;
-    Ok(face_pos)
+    Ok(face)
 }
 
-pub fn detect_multiple_faces(handle: HImage, max_faces: usize) -> Result<Vec<FacePosition>> {
+pub fn detect_multiple_faces(handle: HImage, max_faces: usize) -> Result<Vec<Face>> {
     let lib = get_lib()?;
     let mut count: c_int = 0;
-    let mut faces: Vec<FacePosition> = vec![FacePosition::default(); max_faces];
-    let buffer_size = (max_faces * std::mem::size_of::<FacePosition>()) as c_int;
-    let result = unsafe { (lib.detect_multiple_faces)(handle, &mut count, faces.as_mut_ptr(), buffer_size) };
+    let mut faces: Vec<Face> = vec![Face::default(); max_faces];
+    // In FaceSDK 9.0 the last argument is the maximum number of faces (not bytes)
+    let result = unsafe { (lib.detect_multiple_faces)(handle, &mut count, faces.as_mut_ptr(), max_faces as c_int) };
     if result == FSDKE_FACE_NOT_FOUND {
         return Ok(Vec::new());
     }
@@ -738,105 +696,29 @@ pub fn detect_multiple_faces(handle: HImage, max_faces: usize) -> Result<Vec<Fac
     Ok(faces)
 }
 
-pub fn detect_eyes(handle: HImage) -> Result<Eyes> {
-    let lib = get_lib()?;
-    let mut eyes = Eyes::default();
-    let result = unsafe { (lib.detect_eyes)(handle, &mut eyes) };
-    check_result("DetectEyes", result)?;
-    Ok(eyes)
-}
-
-pub fn detect_eyes_in_region(handle: HImage, face_position: &FacePosition) -> Result<Eyes> {
-    let lib = get_lib()?;
-    let mut eyes = Eyes::default();
-    let result = unsafe { (lib.detect_eyes_in_region)(handle, face_position, &mut eyes) };
-    check_result("DetectEyesInRegion", result)?;
-    Ok(eyes)
-}
-
-// --- Face Detection v2 ---
-
-pub fn detect_face2(handle: HImage) -> Result<Face> {
-    let lib = get_lib()?;
-    let mut face = Face::default();
-    let result = unsafe { (lib.detect_face2)(handle, &mut face) };
-    check_result("DetectFace2", result)?;
-    Ok(face)
-}
-
-pub fn detect_multiple_faces2(handle: HImage, max_faces: usize) -> Result<Vec<Face>> {
-    let lib = get_lib()?;
-    let mut count: c_int = 0;
-    let mut faces: Vec<Face> = vec![Face::default(); max_faces];
-    let buffer_size = (max_faces * std::mem::size_of::<Face>()) as c_int;
-    let result = unsafe { (lib.detect_multiple_faces2)(handle, &mut count, faces.as_mut_ptr(), buffer_size) };
-    if result == FSDKE_FACE_NOT_FOUND {
-        return Ok(Vec::new());
-    }
-    check_result("DetectMultipleFaces2", result)?;
-    faces.truncate(count as usize);
-    Ok(faces)
-}
-
-pub fn detect_face_and_features2(handle: HImage) -> Result<(Face, Features)> {
-    let lib = get_lib()?;
-    let mut face = Face::default();
-    let mut features: Features = [Point::default(); FSDK_FACIAL_FEATURE_COUNT];
-    let result = unsafe { (lib.detect_face_and_features2)(handle, &mut face, &mut features) };
-    check_result("DetectFaceAndFeatures2", result)?;
-    Ok((face, features))
-}
-
-pub fn detect_multiple_faces_and_features2(handle: HImage, max_faces: usize) -> Result<(Vec<Face>, Vec<Features>)> {
-    let lib = get_lib()?;
-    let mut count: c_int = 0;
-    let mut faces: Vec<Face> = vec![Face::default(); max_faces];
-    let mut features: Vec<Features> = vec![[Point::default(); FSDK_FACIAL_FEATURE_COUNT]; max_faces];
-    let buffer_size = (max_faces * std::mem::size_of::<Face>()) as c_int;
-    let result = unsafe { (lib.detect_multiple_faces_and_features2)(handle, &mut count, faces.as_mut_ptr(), features.as_mut_ptr(), buffer_size) };
-    if result == FSDKE_FACE_NOT_FOUND {
-        return Ok((Vec::new(), Vec::new()));
-    }
-    check_result("DetectMultipleFacesAndFeatures2", result)?;
-    faces.truncate(count as usize);
-    features.truncate(count as usize);
-    Ok((faces, features))
-}
-
-// --- Facial Features ---
-
 pub fn detect_facial_features(handle: HImage) -> Result<Features> {
     let lib = get_lib()?;
-    let mut features: Features = [Point::default(); FSDK_FACIAL_FEATURE_COUNT];
+    let mut features: Features = [PointF::default(); FSDK_FACIAL_FEATURE_COUNT];
     let result = unsafe { (lib.detect_facial_features)(handle, &mut features) };
     check_result("DetectFacialFeatures", result)?;
     Ok(features)
 }
 
-pub fn detect_facial_features_in_region(handle: HImage, face_position: &FacePosition) -> Result<Features> {
+pub fn detect_facial_features_in_region(handle: HImage, face: &Face) -> Result<Features> {
     let lib = get_lib()?;
-    let mut features: Features = [Point::default(); FSDK_FACIAL_FEATURE_COUNT];
-    let result = unsafe { (lib.detect_facial_features_in_region)(handle, face_position, &mut features) };
+    let mut features: Features = [PointF::default(); FSDK_FACIAL_FEATURE_COUNT];
+    let result = unsafe { (lib.detect_facial_features_in_region)(handle, face, &mut features) };
     check_result("DetectFacialFeaturesInRegion", result)?;
     Ok(features)
 }
 
-pub fn detect_facial_features_ex(handle: HImage) -> Result<(Features, [f32; FSDK_FACIAL_FEATURE_COUNT])> {
+pub fn extract_face_image(handle: HImage, features: &Features, width: i32, height: i32) -> Result<(HImage, Features)> {
     let lib = get_lib()?;
-    let mut features: Features = [Point::default(); FSDK_FACIAL_FEATURE_COUNT];
-    let mut confidence = [0.0f32; FSDK_FACIAL_FEATURE_COUNT];
-    let result = unsafe { (lib.detect_facial_features_ex)(handle, &mut features, confidence.as_mut_ptr()) };
-    check_result("DetectFacialFeaturesEx", result)?;
-    Ok((features, confidence))
-}
-
-pub fn detect_facial_features_in_region_ex(handle: HImage, face_position: &FacePosition) -> Result<(Features, [f32; FSDK_FACIAL_FEATURE_COUNT])> {
-    let lib = get_lib()?;
-    let mut features: Features = [Point::default(); FSDK_FACIAL_FEATURE_COUNT];
-    let mut confidence = [0.0f32; FSDK_FACIAL_FEATURE_COUNT];
-    let result = unsafe { (lib.detect_facial_features_in_region_ex)(handle, face_position, &mut features, confidence.as_mut_ptr()) };
-    check_result("DetectFacialFeaturesInRegionEx", result)?;
-    Ok((features, confidence))
+    let mut face_image: HImage = -1;
+    let mut resized: Features = [PointF::default(); FSDK_FACIAL_FEATURE_COUNT];
+    let result = unsafe { (lib.extract_face_image)(handle, features, width, height, &mut face_image, &mut resized) };
+    check_result("ExtractFaceImage", result)?;
+    Ok((face_image, resized))
 }
 
 // --- Templates and Matching ---
@@ -849,27 +731,11 @@ pub fn get_face_template(handle: HImage) -> Result<FaceTemplate> {
     Ok(template)
 }
 
-pub fn get_face_template_in_region(handle: HImage, face_position: &FacePosition) -> Result<FaceTemplate> {
+pub fn get_face_template_in_region(handle: HImage, face: &Face) -> Result<FaceTemplate> {
     let lib = get_lib()?;
     let mut template = FaceTemplate::default();
-    let result = unsafe { (lib.get_face_template_in_region)(handle, face_position, &mut template) };
+    let result = unsafe { (lib.get_face_template_in_region)(handle, face, &mut template) };
     check_result("GetFaceTemplateInRegion", result)?;
-    Ok(template)
-}
-
-pub fn get_face_template_using_features(handle: HImage, features: &Features) -> Result<FaceTemplate> {
-    let lib = get_lib()?;
-    let mut template = FaceTemplate::default();
-    let result = unsafe { (lib.get_face_template_using_features)(handle, features, &mut template) };
-    check_result("GetFaceTemplateUsingFeatures", result)?;
-    Ok(template)
-}
-
-pub fn get_face_template_using_eyes(handle: HImage, eyes: &Eyes) -> Result<FaceTemplate> {
-    let lib = get_lib()?;
-    let mut template = FaceTemplate::default();
-    let result = unsafe { (lib.get_face_template_using_eyes)(handle, eyes, &mut template) };
-    check_result("GetFaceTemplateUsingEyes", result)?;
     Ok(template)
 }
 
@@ -879,40 +745,6 @@ pub fn match_faces(template1: &FaceTemplate, template2: &FaceTemplate) -> Result
     let result = unsafe { (lib.match_faces)(template1, template2, &mut similarity) };
     check_result("MatchFaces", result)?;
     Ok(similarity)
-}
-
-pub fn get_matching_threshold_at_far(far_value: f32) -> Result<f32> {
-    let lib = get_lib()?;
-    let mut threshold: c_float = 0.0;
-    let result = unsafe { (lib.get_matching_threshold_at_far)(far_value, &mut threshold) };
-    check_result("GetMatchingThresholdAtFAR", result)?;
-    Ok(threshold)
-}
-
-pub fn get_matching_threshold_at_frr(frr_value: f32) -> Result<f32> {
-    let lib = get_lib()?;
-    let mut threshold: c_float = 0.0;
-    let result = unsafe { (lib.get_matching_threshold_at_frr)(frr_value, &mut threshold) };
-    check_result("GetMatchingThresholdAtFRR", result)?;
-    Ok(threshold)
-}
-
-// --- Templates v2 ---
-
-pub fn get_face_template2(handle: HImage) -> Result<FaceTemplate> {
-    let lib = get_lib()?;
-    let mut template = FaceTemplate::default();
-    let result = unsafe { (lib.get_face_template2)(handle, &mut template) };
-    check_result("GetFaceTemplate2", result)?;
-    Ok(template)
-}
-
-pub fn get_face_template_in_region2(handle: HImage, face: &Face) -> Result<FaceTemplate> {
-    let lib = get_lib()?;
-    let mut template = FaceTemplate::default();
-    let result = unsafe { (lib.get_face_template_in_region2)(handle, face, &mut template) };
-    check_result("GetFaceTemplateInRegion2", result)?;
-    Ok(template)
 }
 
 // --- Facial Attributes ---
@@ -931,6 +763,24 @@ pub fn detect_facial_attribute_using_features(handle: HImage, features: &Feature
         )
     };
     check_result("DetectFacialAttributeUsingFeatures", result)?;
+    let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+pub fn detect_facial_attribute_using_face(handle: HImage, face: &Face, attribute_name: &str) -> Result<String> {
+    let lib = get_lib()?;
+    let c_attr = CString::new(attribute_name).map_err(|e| FsdkError::InvalidString(e.to_string()))?;
+    let mut buffer = vec![0u8; 4096];
+    let result = unsafe {
+        (lib.detect_facial_attribute_using_face)(
+            handle,
+            face,
+            c_attr.as_ptr(),
+            buffer.as_mut_ptr() as *mut c_char,
+            buffer.len() as c_longlong
+        )
+    };
+    check_result("DetectFacialAttributeUsingFace", result)?;
     let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
     Ok(cstr.to_string_lossy().into_owned())
 }
@@ -1068,9 +918,9 @@ pub fn feed_frame(handle: HTracker, camera_idx: i64, image: HImage, max_ids: usi
     Ok(ids)
 }
 
-pub fn get_tracker_eyes(handle: HTracker, camera_idx: i64, id: i64) -> Result<Eyes> {
+pub fn get_tracker_eyes(handle: HTracker, camera_idx: i64, id: i64) -> Result<Features> {
     let lib = get_lib()?;
-    let mut eyes = Eyes::default();
+    let mut eyes: Features = [PointF::default(); FSDK_FACIAL_FEATURE_COUNT];
     let result = unsafe { (lib.get_tracker_eyes)(handle, camera_idx, id, &mut eyes) };
     check_result("GetTrackerEyes", result)?;
     Ok(eyes)
@@ -1078,18 +928,10 @@ pub fn get_tracker_eyes(handle: HTracker, camera_idx: i64, id: i64) -> Result<Ey
 
 pub fn get_tracker_facial_features(handle: HTracker, camera_idx: i64, id: i64) -> Result<Features> {
     let lib = get_lib()?;
-    let mut features: Features = [Point::default(); FSDK_FACIAL_FEATURE_COUNT];
+    let mut features: Features = [PointF::default(); FSDK_FACIAL_FEATURE_COUNT];
     let result = unsafe { (lib.get_tracker_facial_features)(handle, camera_idx, id, &mut features) };
     check_result("GetTrackerFacialFeatures", result)?;
     Ok(features)
-}
-
-pub fn get_tracker_face_position(handle: HTracker, camera_idx: i64, id: i64) -> Result<FacePosition> {
-    let lib = get_lib()?;
-    let mut face_pos = FacePosition::default();
-    let result = unsafe { (lib.get_tracker_face_position)(handle, camera_idx, id, &mut face_pos) };
-    check_result("GetTrackerFacePosition", result)?;
-    Ok(face_pos)
 }
 
 pub fn get_tracker_face(handle: HTracker, camera_idx: i64, id: i64) -> Result<Face> {
@@ -1249,4 +1091,89 @@ pub fn get_tracker_all_ids(handle: HTracker) -> Result<Vec<i64>> {
     let result = unsafe { (lib.get_tracker_all_ids)(handle, ids.as_mut_ptr(), buffer_size) };
     check_result("GetTrackerAllIDs", result)?;
     Ok(ids)
+}
+
+pub fn get_tracker_face_ids_for_id(handle: HTracker, id: i64) -> Result<Vec<i64>> {
+    let lib = get_lib()?;
+    let mut count: c_longlong = 0;
+    let result = unsafe { (lib.get_tracker_face_ids_count_for_id)(handle, id, &mut count) };
+    check_result("GetTrackerFaceIDsCountForID", result)?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let mut ids: Vec<c_longlong> = vec![0; count as usize];
+    let buffer_size = (count as usize * std::mem::size_of::<c_longlong>()) as c_longlong;
+    let result = unsafe { (lib.get_tracker_face_ids_for_id)(handle, id, ids.as_mut_ptr(), buffer_size) };
+    check_result("GetTrackerFaceIDsForID", result)?;
+    Ok(ids)
+}
+
+pub fn get_tracker_id_by_face_id(handle: HTracker, face_id: i64) -> Result<i64> {
+    let lib = get_lib()?;
+    let mut id: c_longlong = 0;
+    let result = unsafe { (lib.get_tracker_id_by_face_id)(handle, face_id, &mut id) };
+    check_result("GetTrackerIDByFaceID", result)?;
+    Ok(id)
+}
+
+pub fn get_tracker_face_template(handle: HTracker, face_id: i64) -> Result<FaceTemplate> {
+    let lib = get_lib()?;
+    let mut template = FaceTemplate::default();
+    let result = unsafe { (lib.get_tracker_face_template)(handle, face_id, &mut template) };
+    check_result("GetTrackerFaceTemplate", result)?;
+    Ok(template)
+}
+
+pub fn get_tracker_face_image(handle: HTracker, face_id: i64) -> Result<HImage> {
+    let lib = get_lib()?;
+    let mut image: HImage = -1;
+    let result = unsafe { (lib.get_tracker_face_image)(handle, face_id, &mut image) };
+    check_result("GetTrackerFaceImage", result)?;
+    Ok(image)
+}
+
+pub fn set_tracker_face_image(handle: HTracker, face_id: i64, image: HImage) -> Result<()> {
+    let lib = get_lib()?;
+    let result = unsafe { (lib.set_tracker_face_image)(handle, face_id, image) };
+    check_result("SetTrackerFaceImage", result)
+}
+
+pub fn delete_tracker_face_image(handle: HTracker, face_id: i64) -> Result<()> {
+    let lib = get_lib()?;
+    let result = unsafe { (lib.delete_tracker_face_image)(handle, face_id) };
+    check_result("DeleteTrackerFaceImage", result)
+}
+
+pub fn delete_tracker_face(handle: HTracker, face_id: i64) -> Result<()> {
+    let lib = get_lib()?;
+    let result = unsafe { (lib.delete_tracker_face)(handle, face_id) };
+    check_result("DeleteTrackerFace", result)
+}
+
+pub fn tracker_create_id(handle: HTracker, template: &FaceTemplate) -> Result<(i64, i64)> {
+    let lib = get_lib()?;
+    let mut id: c_longlong = 0;
+    let mut face_id: c_longlong = 0;
+    let result = unsafe { (lib.tracker_create_id)(handle, template, &mut id, &mut face_id) };
+    check_result("TrackerCreateID", result)?;
+    Ok((id, face_id))
+}
+
+pub fn add_tracker_face_template(handle: HTracker, id: i64, template: &FaceTemplate) -> Result<i64> {
+    let lib = get_lib()?;
+    let mut face_id: c_longlong = 0;
+    let result = unsafe { (lib.add_tracker_face_template)(handle, id, template, &mut face_id) };
+    check_result("AddTrackerFaceTemplate", result)?;
+    Ok(face_id)
+}
+
+pub fn tracker_match_faces(handle: HTracker, template: &FaceTemplate, threshold: f32, max_count: usize) -> Result<Vec<IDSimilarity>> {
+    let lib = get_lib()?;
+    let mut matches: Vec<IDSimilarity> = vec![IDSimilarity::default(); max_count];
+    let mut count: c_longlong = 0;
+    let buffer_size = (max_count * std::mem::size_of::<IDSimilarity>()) as c_longlong;
+    let result = unsafe { (lib.tracker_match_faces)(handle, template, threshold, matches.as_mut_ptr(), &mut count, buffer_size) };
+    check_result("TrackerMatchFaces", result)?;
+    matches.truncate(count as usize);
+    Ok(matches)
 }
