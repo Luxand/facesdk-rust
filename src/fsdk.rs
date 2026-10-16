@@ -55,7 +55,7 @@ pub struct BBox {
 pub struct Face {
     /// Detector confidence
     pub score: f32,
-    /// In-plane rotation angle in degrees
+    /// In-plane rotation angle in radians
     pub angle: f32,
     /// Bounding box with top-left (p0) and bottom-right (p1) corners
     pub bbox: BBox,
@@ -690,6 +690,16 @@ impl Tracker {
     /// Deletes the face image stored under a face ID
     pub fn delete_face_image(&self, face_id: i64) -> Result<()> {
         ffi::delete_tracker_face_image(self.handle, face_id)
+    }
+
+    /// Gets the 5 facial feature points of the face image stored under a face ID, in the coordinates of that image
+    pub fn get_face_features(&self, face_id: i64) -> Result<[Point; 5]> {
+        ffi::get_tracker_face_features(self.handle, face_id)
+    }
+
+    /// Replaces the 5 facial feature points of the face image stored under a face ID
+    pub fn set_face_features(&self, face_id: i64, features: &[Point; 5]) -> Result<()> {
+        ffi::set_tracker_face_features(self.handle, face_id, features)
     }
 
     /// Deletes a face (template and image) from the tracker memory

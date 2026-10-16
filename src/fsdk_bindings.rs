@@ -12,7 +12,7 @@ use libloading::{Library, Symbol};
 use libloading::os::windows::Library as WinLibrary;
 
 use crate::consts::*;
-use crate::{Face, FaceTemplate, Features, FsdkError, HCamera, HImage, HTracker, IDSimilarity, PointF, Result};
+use crate::{Face, FaceTemplate, Features, FsdkError, HCamera, HImage, HTracker, IDSimilarity, Point, PointF, Result};
 
 // Function pointer types - Initialization
 type FnActivateLibrary = unsafe extern "C" fn(*const c_char) -> c_int;
@@ -109,6 +109,8 @@ type FnGetTrackerFaceTemplate = unsafe extern "C" fn(HTracker, c_longlong, *mut 
 type FnGetTrackerFaceImage = unsafe extern "C" fn(HTracker, c_longlong, *mut HImage) -> c_int;
 type FnSetTrackerFaceImage = unsafe extern "C" fn(HTracker, c_longlong, HImage) -> c_int;
 type FnDeleteTrackerFaceImage = unsafe extern "C" fn(HTracker, c_longlong) -> c_int;
+type FnGetTrackerFaceFeatures = unsafe extern "C" fn(HTracker, c_longlong, *mut Point) -> c_int;
+type FnSetTrackerFaceFeatures = unsafe extern "C" fn(HTracker, c_longlong, *const Point) -> c_int;
 type FnDeleteTrackerFace = unsafe extern "C" fn(HTracker, c_longlong) -> c_int;
 type FnTrackerCreateID = unsafe extern "C" fn(HTracker, *const FaceTemplate, *mut c_longlong, *mut c_longlong) -> c_int;
 type FnAddTrackerFaceTemplate = unsafe extern "C" fn(HTracker, c_longlong, *const FaceTemplate, *mut c_longlong) -> c_int;
@@ -207,6 +209,8 @@ struct FsdkLibrary {
     get_tracker_face_image: FnGetTrackerFaceImage,
     set_tracker_face_image: FnSetTrackerFaceImage,
     delete_tracker_face_image: FnDeleteTrackerFaceImage,
+    get_tracker_face_features: FnGetTrackerFaceFeatures,
+    set_tracker_face_features: FnSetTrackerFaceFeatures,
     delete_tracker_face: FnDeleteTrackerFace,
     tracker_create_id: FnTrackerCreateID,
     add_tracker_face_template: FnAddTrackerFaceTemplate,
@@ -410,6 +414,8 @@ impl FsdkLibrary {
                 get_tracker_face_image: load_fn!(lib, "FSDK_GetTrackerFaceImage"),
                 set_tracker_face_image: load_fn!(lib, "FSDK_SetTrackerFaceImage"),
                 delete_tracker_face_image: load_fn!(lib, "FSDK_DeleteTrackerFaceImage"),
+                get_tracker_face_features: load_fn!(lib, "FSDK_GetTrackerFaceFeatures"),
+                set_tracker_face_features: load_fn!(lib, "FSDK_SetTrackerFaceFeatures"),
                 delete_tracker_face: load_fn!(lib, "FSDK_DeleteTrackerFace"),
                 tracker_create_id: load_fn!(lib, "FSDK_TrackerCreateID"),
                 add_tracker_face_template: load_fn!(lib, "FSDK_AddTrackerFaceTemplate"),
@@ -1142,6 +1148,20 @@ pub fn delete_tracker_face_image(handle: HTracker, face_id: i64) -> Result<()> {
     let lib = get_lib()?;
     let result = unsafe { (lib.delete_tracker_face_image)(handle, face_id) };
     check_result("DeleteTrackerFaceImage", result)
+}
+
+pub fn get_tracker_face_features(handle: HTracker, face_id: i64) -> Result<[Point; 5]> {
+    let lib = get_lib()?;
+    let mut features = [Point::default(); 5];
+    let result = unsafe { (lib.get_tracker_face_features)(handle, face_id, features.as_mut_ptr()) };
+    check_result("GetTrackerFaceFeatures", result)?;
+    Ok(features)
+}
+
+pub fn set_tracker_face_features(handle: HTracker, face_id: i64, features: &[Point; 5]) -> Result<()> {
+    let lib = get_lib()?;
+    let result = unsafe { (lib.set_tracker_face_features)(handle, face_id, features.as_ptr()) };
+    check_result("SetTrackerFaceFeatures", result)
 }
 
 pub fn delete_tracker_face(handle: HTracker, face_id: i64) -> Result<()> {
