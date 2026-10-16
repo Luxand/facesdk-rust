@@ -92,8 +92,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracker.set_parameters(
             "FaceDetectionPatchSize=128;\
              FaceDetectionThreshold=0.4;\
-             Threshold=0.8;\
-             Threshold2=0.9;\
+             Threshold=0.75;\
+             Threshold2=0.8;\
              DetectLiveness=true;\
              LivenessFramesCount=1;\
              SmoothAttributeLiveness=false"
@@ -107,8 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracker.set_parameters(
             "FaceDetectionPatchSize=128;\
              FaceDetectionThreshold=0.4;\
-             Threshold=0.8;\
-             Threshold2=0.9;\
+             Threshold=0.75;\
+             Threshold2=0.8;\
              DetectLiveness=true;\
              LivenessFramesCount=6;\
              SmoothAttributeLiveness=true"

@@ -12,7 +12,7 @@ The iBeta certified Liveness add-on for FaceSDK aced Level 1 Presentation Attack
 
 # FaceSDK - Rust, Cross-Platform (macOS, Linux, Windows)
 
-Cross-platform Rust examples demonstrating face detection, recognition, and liveness verification using Luxand FaceSDK 9.0. Includes a Rust wrapper with dynamic library loading — no build-time linking required.
+Cross-platform Rust examples demonstrating face detection, recognition, and liveness verification using Luxand FaceSDK 9.0.1. Includes a Rust wrapper with dynamic library loading — no build-time linking required.
 
 > Before running examples, replace `INSERT THE LICENSE KEY HERE` with your license key in `src/liverecognition.rs` and `src/portrait.rs`.
 
@@ -38,7 +38,7 @@ Face detection and cropping from a static image.
 ## Prerequisites
 
 - **Rust** toolchain (1.70+) installed via `rustup`: https://rustup.rs/
-- **Luxand FaceSDK 9.0** native library placed in the `fsdk/` directory (already included in this repository):
+- **Luxand FaceSDK 9.0.1** native library placed in the `fsdk/` directory (already included in this repository):
   - macOS ARM64: `fsdk/osx_arm64/libfsdk.dylib`
   - Linux 64-bit: `fsdk/linux64/libfsdk.so`
   - Windows 64-bit: `fsdk/win64/facesdk.dll`
@@ -108,7 +108,7 @@ Templates and tracker memory files created with FaceSDK 8.x are not compatible w
 ```rust
 pub struct Face {
     pub score: f32,           // Detector confidence
-    pub angle: f32,           // In-plane rotation angle in degrees
+    pub angle: f32,           // In-plane rotation angle in radians
     pub bbox: BBox,           // Bounding box with top-left (p0) and bottom-right (p1)
     pub features: [Point; 5], // Eye centers, nose tip, mouth corners
 }
